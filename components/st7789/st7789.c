@@ -11,20 +11,21 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
-
+#include "esp_rom_gpio.h"
 
 const char *TAG = "st7789";
 
-
-static void st7789_pre_cb(spi_transaction_t *transaction) {
+static void st7789_pre_cb(spi_transaction_t *transaction)
+{
 	const st7789_transaction_data_t *data = (st7789_transaction_data_t *)transaction->user;
 	gpio_set_level(data->driver->pin_dc, data->data);
 }
 
-
-esp_err_t st7789_init(st7789_driver_t *driver) {
+esp_err_t st7789_init(st7789_driver_t *driver)
+{
 	driver->buffer = (st7789_color_t *)heap_caps_malloc(driver->buffer_size * 2 * sizeof(st7789_color_t), MALLOC_CAP_DMA);
-	if (driver->buffer == NULL) {
+	if (driver->buffer == NULL)
+	{
 		ESP_LOGE(TAG, "buffer not allocated");
 		return ESP_FAIL;
 	}
@@ -38,33 +39,47 @@ esp_err_t st7789_init(st7789_driver_t *driver) {
 	driver->command.driver = driver;
 	driver->command.data = false;
 
-	gpio_pad_select_gpio(driver->pin_reset);
-	gpio_pad_select_gpio(driver->pin_dc);
+	esp_rom_gpio_pad_select_gpio(driver->pin_reset);
+	esp_rom_gpio_pad_select_gpio(driver->pin_dc);
 	gpio_set_direction(driver->pin_reset, GPIO_MODE_OUTPUT);
 	gpio_set_direction(driver->pin_dc, GPIO_MODE_OUTPUT);
 
+	if (driver->pin_cs != -1)
+	{
+		esp_rom_gpio_pad_select_gpio(driver->pin_cs);
+		gpio_set_direction(driver->pin_cs, GPIO_MODE_OUTPUT);
+		gpio_set_level(driver->pin_cs, 0);
+	}
+	if (driver->pin_backlight != -1)
+	{
+		esp_rom_gpio_pad_select_gpio(driver->pin_backlight);
+		gpio_set_direction(driver->pin_backlight, GPIO_MODE_OUTPUT);
+		gpio_set_level(driver->pin_backlight, 0);
+	}
+
 	spi_bus_config_t buscfg = {
-		.mosi_io_num=driver->pin_mosi,
-		.miso_io_num=-1,
-		.sclk_io_num=driver->pin_sclk,
-		.quadwp_io_num=-1,
-		.quadhd_io_num=-1,
-		.max_transfer_sz=driver->buffer_size * 2 * sizeof(st7789_color_t), // 2 buffers with 2 bytes for pixel
-		.flags=SPICOMMON_BUSFLAG_NATIVE_PINS
-	};
+		.mosi_io_num = driver->pin_mosi,
+		.miso_io_num = -1,
+		.sclk_io_num = driver->pin_sclk,
+		.quadwp_io_num = -1,
+		.quadhd_io_num = -1,
+		.max_transfer_sz = driver->buffer_size * 2 * sizeof(st7789_color_t), // 2 buffers with 2 bytes for pixel
+		.flags = SPICOMMON_BUSFLAG_NATIVE_PINS};
 	spi_device_interface_config_t devcfg = {
-		.clock_speed_hz=SPI_MASTER_FREQ_40M,
-		.mode=3,
-		.spics_io_num=-1,
-		.queue_size=ST7789_SPI_QUEUE_SIZE,
-		.pre_cb=st7789_pre_cb,
+		.clock_speed_hz = SPI_MASTER_FREQ_40M,
+		.mode = 3,
+		.spics_io_num = driver->pin_cs,
+		.queue_size = ST7789_SPI_QUEUE_SIZE,
+		.pre_cb = st7789_pre_cb,
 	};
 
-	if (spi_bus_initialize(driver->spi_host, &buscfg, driver->dma_chan) != ESP_OK) {
+	if (spi_bus_initialize(driver->spi_host, &buscfg, driver->dma_chan) != ESP_OK)
+	{
 		ESP_LOGE(TAG, "spi bus initialize failed");
 		return ESP_FAIL;
 	}
-	if (spi_bus_add_device(driver->spi_host, &devcfg, &driver->spi) != ESP_OK) {
+	if (spi_bus_add_device(driver->spi_host, &devcfg, &driver->spi) != ESP_OK)
+	{
 		ESP_LOGE(TAG, "spi bus add device failed");
 		return ESP_FAIL;
 	}
@@ -72,39 +87,57 @@ esp_err_t st7789_init(st7789_driver_t *driver) {
 	return ESP_OK;
 }
 
-
-void st7789_reset(st7789_driver_t *driver) {
+void st7789_reset(st7789_driver_t *driver)
+{
 	gpio_set_level(driver->pin_reset, 0);
 	vTaskDelay(20 / portTICK_PERIOD_MS);
 	gpio_set_level(driver->pin_reset, 1);
 	vTaskDelay(130 / portTICK_PERIOD_MS);
 }
 
+void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
+{
 
-void st7789_lcd_init(st7789_driver_t *driver) {
+	uint8_t madctl = 0;
+
+	// rotation = rotation % 3; // can't be higher than 3
+
+	switch (rotation)
+	{
+	case 0:
+		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MY;
+		break;
+	case 1:
+		madctl = ST7789_MADCTL_MY | ST7789_MADCTL_MV;
+		break;
+	case 2:
+		break;
+	case 3:
+		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MV;
+		break;
+	}
+
 	const uint8_t caset[4] = {
 		0x00,
 		0x00,
 		(driver->display_width - 1) >> 8,
-		(driver->display_width - 1) & 0xff
-	};
+		(driver->display_width - 1) & 0xff};
 	const uint8_t raset[4] = {
 		0x00,
 		0x00,
 		(driver->display_height - 1) >> 8,
-		(driver->display_height - 1) & 0xff
-	};
+		(driver->display_height - 1) & 0xff};
 	const st7789_command_t init_sequence[] = {
 		// Sleep
-		{ST7789_CMD_SLPIN, 10, 0, NULL},                    // Sleep
-		{ST7789_CMD_SWRESET, 200, 0, NULL},                 // Reset
-		{ST7789_CMD_SLPOUT, 120, 0, NULL},                  // Sleep out
+		{ST7789_CMD_SLPIN, 10, 0, NULL},	// Sleep
+		{ST7789_CMD_SWRESET, 200, 0, NULL}, // Reset
+		{ST7789_CMD_SLPOUT, 120, 0, NULL},	// Sleep out
 
-		{ST7789_CMD_MADCTL, 0, 1, (const uint8_t *)"\x00"}, // Page / column address order
+		{ST7789_CMD_MADCTL, 0, 1, &madctl}, // Page / column address order
 		{ST7789_CMD_COLMOD, 0, 1, (const uint8_t *)"\x55"}, // 16 bit RGB
-		{ST7789_CMD_INVON, 0, 0, NULL},                     // Inversion on
-		{ST7789_CMD_CASET, 0, 4, (const uint8_t *)&caset},  // Set width
-		{ST7789_CMD_RASET, 0, 4, (const uint8_t *)&raset},  // Set height
+		{ST7789_CMD_INVON, 0, 0, NULL},						// Inversion on
+		{ST7789_CMD_CASET, 0, 4, (const uint8_t *)&caset},	// Set width
+		{ST7789_CMD_RASET, 0, 4, (const uint8_t *)&raset},	// Set height
 
 		// Porch setting
 		{ST7789_CMD_PORCTRL, 0, 5, (const uint8_t *)"\x0c\x0c\x00\x33\x33"},
@@ -130,32 +163,52 @@ void st7789_lcd_init(st7789_driver_t *driver) {
 
 		// Little endian
 		{ST7789_CMD_RAMCTRL, 0, 2, (const uint8_t *)"\x00\xc8"},
-		{ST7789_CMDLIST_END, 0, 0, NULL},                   // End of commands
+		{ST7789_CMDLIST_END, 0, 0, NULL}, // End of commands
 	};
 	st7789_run_commands(driver, init_sequence);
 	st7789_clear(driver, 0x0000);
 	const st7789_command_t init_sequence2[] = {
-		{ST7789_CMD_DISPON, 100, 0, NULL},                  // Display on
-		{ST7789_CMD_SLPOUT, 100, 0, NULL},                  // Sleep out
+		{ST7789_CMD_DISPON, 100, 0, NULL}, // Display on
+		{ST7789_CMD_SLPOUT, 100, 0, NULL}, // Sleep out
 		{ST7789_CMD_CASET, 0, 4, caset},
 		{ST7789_CMD_RASET, 0, 4, raset},
 		{ST7789_CMD_RAMWR, 0, 0, NULL},
-		{ST7789_CMDLIST_END, 0, 0, NULL},                   // End of commands
+		{ST7789_CMDLIST_END, 0, 0, NULL}, // End of commands
 	};
 	st7789_run_commands(driver, init_sequence2);
 }
 
+// void st7789_set_rotation(st7789_driver_t *driver, uint8_t rotation)
+// {
 
-void st7789_start_command(st7789_driver_t *driver) {
+// 	const st7789_command_t rotate_sequence[] = {
+// 		{ST7789_CMD_MADCTL, 0, 1, &madctl},
+// 		{ST7789_CMDLIST_END, 0, 0, NULL}, // End of commands
+// 	};
+
+// 	st7789_run_commands(driver, rotate_sequence);
+// }
+
+void st7789_set_backlight(st7789_driver_t *driver, bool enable)
+{
+	if (driver->pin_backlight != -1)
+	{
+		gpio_set_level(driver->pin_backlight, enable);
+	}
+}
+
+void st7789_start_command(st7789_driver_t *driver)
+{
 	gpio_set_level(driver->pin_dc, 0);
 }
 
-
-void st7789_start_data(st7789_driver_t *driver) {
+void st7789_start_data(st7789_driver_t *driver)
+{
 	gpio_set_level(driver->pin_dc, 1);
 }
 
-void st7789_run_command(st7789_driver_t *driver, const st7789_command_t *command) {
+void st7789_run_command(st7789_driver_t *driver, const st7789_command_t *command)
+{
 	spi_transaction_t *rtrans;
 	st7789_wait_until_queue_empty(driver);
 	spi_transaction_t trans;
@@ -166,7 +219,8 @@ void st7789_run_command(st7789_driver_t *driver, const st7789_command_t *command
 	spi_device_queue_trans(driver->spi, &trans, portMAX_DELAY);
 	spi_device_get_trans_result(driver->spi, &rtrans, portMAX_DELAY);
 
-	if (command->data_size > 0) {
+	if (command->data_size > 0)
+	{
 		memset(&trans, 0, sizeof(trans));
 		trans.length = command->data_size * 8;
 		trans.tx_buffer = command->data;
@@ -175,24 +229,30 @@ void st7789_run_command(st7789_driver_t *driver, const st7789_command_t *command
 		spi_device_get_trans_result(driver->spi, &rtrans, portMAX_DELAY);
 	}
 
-	if (command->wait_ms > 0) {
+	if (command->wait_ms > 0)
+	{
 		vTaskDelay(command->wait_ms / portTICK_PERIOD_MS);
 	}
 }
 
-void st7789_run_commands(st7789_driver_t *driver, const st7789_command_t *sequence) {
-	while (sequence->command != ST7789_CMDLIST_END) {
+void st7789_run_commands(st7789_driver_t *driver, const st7789_command_t *sequence)
+{
+	while (sequence->command != ST7789_CMDLIST_END)
+	{
 		st7789_run_command(driver, sequence);
 		sequence++;
 	}
 }
 
-void st7789_clear(st7789_driver_t *driver, st7789_color_t color) {
+void st7789_clear(st7789_driver_t *driver, st7789_color_t color)
+{
 	st7789_fill_area(driver, color, 0, 0, driver->display_width, driver->display_height);
 }
 
-void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t start_x, uint16_t start_y, uint16_t width, uint16_t height) {
-	for (size_t i = 0; i < driver->buffer_size * 2; ++i) {
+void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t start_x, uint16_t start_y, uint16_t width, uint16_t height)
+{
+	for (size_t i = 0; i < driver->buffer_size * 2; ++i)
+	{
 		driver->buffer[i] = color;
 	}
 	st7789_set_window(driver, start_x, start_y, start_x + width - 1, start_y + height - 1);
@@ -209,12 +269,15 @@ void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t st
 
 	spi_transaction_t *rtrans;
 
-	while (bytes_to_write > 0) {
-		if (driver->queue_fill >= ST7789_SPI_QUEUE_SIZE) {
+	while (bytes_to_write > 0)
+	{
+		if (driver->queue_fill >= ST7789_SPI_QUEUE_SIZE)
+		{
 			spi_device_get_trans_result(driver->spi, &rtrans, portMAX_DELAY);
 			driver->queue_fill--;
 		}
-		if (bytes_to_write < transfer_size) {
+		if (bytes_to_write < transfer_size)
+		{
 			transfer_size = bytes_to_write;
 		}
 		spi_device_queue_trans(driver->spi, &trans, portMAX_DELAY);
@@ -225,7 +288,8 @@ void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t st
 	st7789_wait_until_queue_empty(driver);
 }
 
-void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y) {
+void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y)
+{
 	uint8_t caset[4];
 	uint8_t raset[4];
 	caset[0] = (uint8_t)(start_x >> 8);
@@ -245,7 +309,8 @@ void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start
 	st7789_run_commands(driver, sequence);
 }
 
-void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t length) {
+void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t length)
+{
 	st7789_wait_until_queue_empty(driver);
 
 	spi_transaction_t *trans = driver->current_buffer == driver->buffer_a ? &driver->trans_a : &driver->trans_b;
@@ -259,32 +324,37 @@ void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t
 	driver->queue_fill++;
 }
 
-void st7789_wait_until_queue_empty(st7789_driver_t *driver) {
+void st7789_wait_until_queue_empty(st7789_driver_t *driver)
+{
 	spi_transaction_t *rtrans;
-	while (driver->queue_fill > 0) {
+	while (driver->queue_fill > 0)
+	{
 		spi_device_get_trans_result(driver->spi, &rtrans, portMAX_DELAY);
 		driver->queue_fill--;
 	}
 }
 
-void st7789_swap_buffers(st7789_driver_t *driver) {
+void st7789_swap_buffers(st7789_driver_t *driver)
+{
 	st7789_write_pixels(driver, driver->current_buffer, driver->buffer_size);
 	driver->current_buffer = driver->current_buffer == driver->buffer_a ? driver->buffer_b : driver->buffer_a;
 }
 
-
 uint8_t st7789_dither_table[256] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-void st7789_randomize_dither_table() {
+void st7789_randomize_dither_table()
+{
 	uint16_t *dither_table = (uint16_t *)st7789_dither_table;
-	for (size_t i = 0; i < sizeof(st7789_dither_table) / 2; ++i) {
+	for (size_t i = 0; i < sizeof(st7789_dither_table) / 2; ++i)
+	{
 		dither_table[i] = rand() & 0xffff;
 	}
 }
 
-
-void st7789_draw_gray2_bitmap(uint8_t *src_buf, st7789_color_t *target_buf, uint8_t r, uint8_t g, uint8_t b, int x, int y, int src_w, int src_h, int target_w, int target_h) {
-	if (x >= target_w || y >= target_h || x + src_w <= 0 || y + src_h <= 0) {
+void st7789_draw_gray2_bitmap(uint8_t *src_buf, st7789_color_t *target_buf, uint8_t r, uint8_t g, uint8_t b, int x, int y, int src_w, int src_h, int target_w, int target_h)
+{
+	if (x >= target_w || y >= target_h || x + src_w <= 0 || y + src_h <= 0)
+	{
 		return;
 	}
 
@@ -298,20 +368,25 @@ void st7789_draw_gray2_bitmap(uint8_t *src_buf, st7789_color_t *target_buf, uint
 	size_t x_pos = 0;
 	size_t y_pos = 0;
 
-	if (y < 0) {
+	if (y < 0)
+	{
 		src_pos = (-y) * src_w;
 	}
-	if (x < 0) {
+	if (x < 0)
+	{
 		src_pos -= x;
 	}
-	if (y > 0) {
+	if (y > 0)
+	{
 		target_pos = y * target_w;
 	}
-	if (x > 0) {
+	if (x > 0)
+	{
 		target_pos += x;
 	}
 
-	while (src_pos < src_size && target_pos < target_size) {
+	while (src_pos < src_size && target_pos < target_size)
+	{
 		uint8_t src_r, src_g, src_b;
 		uint8_t target_r, target_g, target_b;
 		st7789_color_to_rgb(target_buf[target_pos], &src_r, &src_g, &src_b);
@@ -326,35 +401,37 @@ void st7789_draw_gray2_bitmap(uint8_t *src_buf, st7789_color_t *target_buf, uint
 		target_b = ((src_weight * src_b) + (target_weight * b)) >> 7;
 		target_buf[target_pos] = st7789_rgb_to_color_dither(target_r, target_g, target_b, x_pos, y_pos);
 		*/
-		switch(gray2_color) {
-			case 1:
-				target_r = r >> 1;
-				target_g = g >> 1;
-				target_b = b >> 1;
-				src_r = (src_r >> 1) + target_r;
-				src_g = (src_g >> 1) + target_g;
-				src_b = (src_b >> 1) + target_b;
-				target_buf[target_pos] = st7789_rgb_to_color_dither(src_r, src_g, src_b, x_pos, y_pos);
-				break;
-			case 2:
-				target_r = r >> 2;
-				target_g = g >> 2;
-				target_b = b >> 2;
-				src_r = (src_r >> 2) + target_r + target_r + target_r;
-				src_g = (src_g >> 2) + target_g + target_g + target_g;
-				src_b = (src_b >> 2) + target_b + target_b + target_b;
-				target_buf[target_pos] = st7789_rgb_to_color_dither(src_r, src_g, src_b, x_pos, y_pos);
-				break;
-			case 3:
-				target_buf[target_pos] = st7789_rgb_to_color_dither(r, g, b, x_pos, y_pos);
-				break;
-			default:
-				break;
+		switch (gray2_color)
+		{
+		case 1:
+			target_r = r >> 1;
+			target_g = g >> 1;
+			target_b = b >> 1;
+			src_r = (src_r >> 1) + target_r;
+			src_g = (src_g >> 1) + target_g;
+			src_b = (src_b >> 1) + target_b;
+			target_buf[target_pos] = st7789_rgb_to_color_dither(src_r, src_g, src_b, x_pos, y_pos);
+			break;
+		case 2:
+			target_r = r >> 2;
+			target_g = g >> 2;
+			target_b = b >> 2;
+			src_r = (src_r >> 2) + target_r + target_r + target_r;
+			src_g = (src_g >> 2) + target_g + target_g + target_g;
+			src_b = (src_b >> 2) + target_b + target_b + target_b;
+			target_buf[target_pos] = st7789_rgb_to_color_dither(src_r, src_g, src_b, x_pos, y_pos);
+			break;
+		case 3:
+			target_buf[target_pos] = st7789_rgb_to_color_dither(r, g, b, x_pos, y_pos);
+			break;
+		default:
+			break;
 		}
 
 		x_pos++;
 
-		if (x_pos == line_w) {
+		if (x_pos == line_w)
+		{
 			x_pos = 0;
 			y_pos++;
 			src_pos += src_skip;

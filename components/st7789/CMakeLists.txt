@@ -3,4 +3,6 @@ idf_component_register(
 		"st7789.c"
 	INCLUDE_DIRS
 		"include"
+	REQUIRES
+		driver
 )

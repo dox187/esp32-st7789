@@ -7,20 +7,23 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "soc/cpu.h"
+#include "esp_cpu.h"
 
 #include "unicode.h"
 #include "font_render.h"
 #include "st7789.h"
 
 
-#define ST7789_GPIO_RESET GPIO_NUM_19
-#define ST7789_GPIO_DC GPIO_NUM_22
 #define ST7789_GPIO_MOSI GPIO_NUM_23
 #define ST7789_GPIO_SCLK GPIO_NUM_18
+#define ST7789_GPIO_CS GPIO_NUM_21
+#define ST7789_GPIO_DC GPIO_NUM_22
+#define ST7789_GPIO_RESET GPIO_NUM_16
+#define ST7789_GPIO_BACKLIGHT GPIO_NUM_4
+
 #define ST7789_SPI_HOST VSPI_HOST
 #define ST7789_DMA_CHAN 2
-#define ST7789_DISPLAY_WIDTH 240
+#define ST7789_DISPLAY_WIDTH 320
 #define ST7789_DISPLAY_HEIGHT 240
 #define ST7789_BUFFER_SIZE 20
 
@@ -559,15 +562,17 @@ void complex_text_demo(st7789_driver_t *driver, uint16_t y, draw_event_param_t *
 void app_main(void)
 {
 	st7789_driver_t display = {
-		.pin_reset = ST7789_GPIO_RESET,
-		.pin_dc = ST7789_GPIO_DC,
-		.pin_mosi = ST7789_GPIO_MOSI,
-		.pin_sclk = ST7789_GPIO_SCLK,
-		.spi_host = ST7789_SPI_HOST,
-		.dma_chan = ST7789_DMA_CHAN,
-		.display_width = ST7789_DISPLAY_WIDTH,
-		.display_height = ST7789_DISPLAY_HEIGHT,
-		.buffer_size = ST7789_BUFFER_SIZE * ST7789_DISPLAY_WIDTH, // 2 buffers with 20 lines
+        .pin_mosi = ST7789_GPIO_MOSI,
+        .pin_sclk = ST7789_GPIO_SCLK,
+        .pin_cs = ST7789_GPIO_CS,
+        .pin_dc = ST7789_GPIO_DC,
+        .pin_reset = ST7789_GPIO_RESET,
+        .pin_backlight = ST7789_GPIO_BACKLIGHT,
+        .spi_host = ST7789_SPI_HOST,
+        .dma_chan = ST7789_DMA_CHAN,
+        .display_width = ST7789_DISPLAY_WIDTH,
+        .display_height = ST7789_DISPLAY_HEIGHT,
+        .buffer_size = ST7789_BUFFER_SIZE * ST7789_DISPLAY_WIDTH, // 2 buffers with 20 lines
 	};
 
 	ESP_ERROR_CHECK(st7789_init(&display));
@@ -576,7 +581,9 @@ void app_main(void)
 		ESP_ERROR_CHECK(font_face_init(&font_face, ttf_start, ttf_end - ttf_start - 1));
 
 		st7789_reset(&display);
-		st7789_lcd_init(&display);
+		st7789_lcd_init(&display, 1);
+		// st7789_set_rotation(&display, 2);
+		st7789_set_backlight(&display, true);
 
 
 		// Animation
@@ -673,9 +680,9 @@ void app_main(void)
 				}
 
 				if (has_render_layer) {
-					uint32_t ticks_before_frame = esp_cpu_get_ccount();
+					uint32_t ticks_before_frame = esp_cpu_get_cycle_count();
 					st7789_randomize_dither_table();
-					for (size_t block = 0; block < ST7789_DISPLAY_WIDTH; block += ST7789_BUFFER_SIZE) {
+					for (size_t block = 0; block < ST7789_DISPLAY_HEIGHT; block += ST7789_BUFFER_SIZE) {
 						current_layer = animation_step->draw_elements;
 						while (current_layer->callback) {
 							draw_state.user_data = current_layer->user_data;
@@ -684,7 +691,7 @@ void app_main(void)
 						}
 						st7789_swap_buffers(&display);
 					}
-					uint32_t ticks_after_frame = esp_cpu_get_ccount();
+					uint32_t ticks_after_frame = esp_cpu_get_cycle_count();
 					printf("\rf: %08d, time: %.4f", (int)draw_state.total_frame, ((double)ticks_after_frame - (double)ticks_before_frame) / 240000.0);
 				}
 				else {

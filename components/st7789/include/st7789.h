@@ -94,6 +94,12 @@
 #define ST7789_CMD_NVMSET            0xfc // NVM Setting
 #define ST7789_CMD_PROMACT           0xfe // Program Action
 
+// Rotation modes
+#define ST7789_MADCTL_MY 		  	 0x80
+#define ST7789_MADCTL_MX 			 0x40
+#define ST7789_MADCTL_MV 			 0x20
+#define ST7789_MADCTL_ML 			 0x10
+
 #define ST7789_CMDLIST_END           0xff // End command (used for command list)
 
 struct st7789_driver;
@@ -106,10 +112,12 @@ typedef struct st7789_transaction_data {
 typedef uint16_t st7789_color_t;
 
 typedef struct st7789_driver {
-	int pin_reset;
-	int pin_dc;
 	int pin_mosi;
 	int pin_sclk;
+	int pin_cs;
+	int pin_dc;
+	int pin_reset;
+	int pin_backlight;
 	int spi_host;
 	int dma_chan;
 	uint8_t queue_fill;
@@ -136,7 +144,7 @@ typedef struct st7789_command {
 
 esp_err_t st7789_init(st7789_driver_t *driver);
 void st7789_reset(st7789_driver_t *driver);
-void st7789_lcd_init(st7789_driver_t *driver);
+void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation);
 void st7789_start_command(st7789_driver_t *driver);
 void st7789_start_data(st7789_driver_t *driver);
 void st7789_run_command(st7789_driver_t *driver, const st7789_command_t *command);
@@ -148,6 +156,8 @@ void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start
 void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t length);
 void st7789_wait_until_queue_empty(st7789_driver_t *driver);
 void st7789_swap_buffers(st7789_driver_t *driver);
+void st7789_set_backlight(st7789_driver_t *driver, bool enable);
+// void st7789_set_rotation(st7789_driver_t *driver, uint8_t rotation);
 /*
 inline st7789_color_t st7789_rgb_to_color(uint8_t r, uint8_t g, uint8_t b) {
 	return (((uint16_t)r >> 3) << 11) | (((uint16_t)g >> 2) << 5) | ((uint16_t)b >> 3);
