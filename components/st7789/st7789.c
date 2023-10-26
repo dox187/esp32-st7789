@@ -13,6 +13,40 @@
 #include "sdkconfig.h"
 #include "esp_rom_gpio.h"
 
+
+//config parser
+#if CONFIG_SPI2_HOST
+	#define SPI_HOST_ID SPI2_HOST
+#elif CONFIG_SPI3_HOST
+	#define SPI_HOST_ID SPI3_HOST
+#endif
+
+#if CONFIG_SPI_DMA_DISABLED
+	#define SPI_DMA_CH SPI_DMA_DISABLED
+#elif CONFIG_SPI_DMA_CH1
+	#define SPI_DMA_CH SPI_DMA_CH1
+#elif CONFIG_SPI_DMA_CH2
+	#define SPI_DMA_CH SPI_DMA_CH2
+#elif CONFIG_SPI_DMA_CH_AUTO
+	#define SPI_DMA_CH SPI_DMA_CH_AUTO
+#endif
+
+#if CONFIG_SPI_MASTER_FREQ_8M
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_8M
+#elif CONFIG_SPI_MASTER_FREQ_10M 
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_10M 
+#elif CONFIG_SPI_MASTER_FREQ_16M 
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_16M 
+#elif CONFIG_SPI_MASTER_FREQ_20M
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_20M
+#elif CONFIG_SPI_MASTER_FREQ_26M 
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_26M 
+#elif CONFIG_SPI_MASTER_FREQ_40M 
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_40M 
+#elif CONFIG_SPI_MASTER_FREQ_80M
+	#define SPI_MASTER_FREQ SPI_MASTER_FREQ_80M
+#endif
+
 const char *TAG = "st7789";
 
 static void st7789_pre_cb(spi_transaction_t *transaction)
@@ -21,7 +55,7 @@ static void st7789_pre_cb(spi_transaction_t *transaction)
 	gpio_set_level(data->driver->pin_dc, data->data);
 }
 
-esp_err_t st7789_init(st7789_driver_t *driver)
+static esp_err_t spi_init(st7789_driver_t *driver)
 {
 	driver->buffer = (st7789_color_t *)heap_caps_malloc(driver->buffer_size * 2 * sizeof(st7789_color_t), MALLOC_CAP_DMA);
 	if (driver->buffer == NULL)
@@ -64,12 +98,13 @@ esp_err_t st7789_init(st7789_driver_t *driver)
 		.quadwp_io_num = -1,
 		.quadhd_io_num = -1,
 		.max_transfer_sz = driver->buffer_size * 2 * sizeof(st7789_color_t), // 2 buffers with 2 bytes for pixel
-		.flags = SPICOMMON_BUSFLAG_NATIVE_PINS};
+		.flags = 0, //SPICOMMON_BUSFLAG_NATIVE_PINS,
+	};
 	spi_device_interface_config_t devcfg = {
-		.clock_speed_hz = SPI_MASTER_FREQ_40M,
+		.clock_speed_hz = SPI_MASTER_FREQ,
 		.mode = 3,
 		.spics_io_num = driver->pin_cs,
-		.queue_size = ST7789_SPI_QUEUE_SIZE,
+		.queue_size = CONFIG_ST7789_SPI_QUEUE_SIZE,
 		.pre_cb = st7789_pre_cb,
 	};
 
@@ -85,6 +120,48 @@ esp_err_t st7789_init(st7789_driver_t *driver)
 	}
 	ESP_LOGI(TAG, "driver initialized");
 	return ESP_OK;
+}
+
+st7789_driver_t display;
+
+st7789_driver_t* st7789_init(){
+	uint16_t width, height;
+	uint16_t offsetx, offsety;
+	if(CONFIG_ST7789_ROTATION%2){
+		width = CONFIG_ST7789_HEIGHT;
+		height = CONFIG_ST7789_WIDTH;
+		offsetx = CONFIG_ST7789_OFFSETY;
+		offsety = CONFIG_ST7789_OFFSETX;
+	}else{
+		width = CONFIG_ST7789_WIDTH;
+		height = CONFIG_ST7789_HEIGHT;
+		offsetx = CONFIG_ST7789_OFFSETX;
+		offsety = CONFIG_ST7789_OFFSETY;
+	}
+
+	display = (st7789_driver_t){
+        .pin_mosi = CONFIG_ST7789_MOSI_GPIO,
+        .pin_sclk = CONFIG_ST7789_SCLK_GPIO,
+        .pin_cs = CONFIG_ST7789_CS_GPIO,
+        .pin_dc = CONFIG_ST7789_DC_GPIO,
+        .pin_reset = CONFIG_ST7789_RESET_GPIO,
+        .pin_backlight = CONFIG_ST7789_BL_GPIO,
+        .spi_host = SPI_HOST_ID,
+        .dma_chan = SPI_DMA_CH,
+        .display_width = width,
+        .display_height = height,
+		.offset_x = offsetx,
+		.offset_y = offsety,
+        .buffer_size = CONFIG_ST7789_BUFFER_SIZE * width, // 2 buffers with 20 lines
+	};
+	
+	ESP_ERROR_CHECK(spi_init(&display));
+
+	
+	st7789_reset(&display);
+	st7789_lcd_init(&display, CONFIG_ST7789_ROTATION);
+
+	return &display;
 }
 
 void st7789_reset(st7789_driver_t *driver)
@@ -105,28 +182,28 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 	switch (rotation)
 	{
 	case 0:
-		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MY;
 		break;
 	case 1:
-		madctl = ST7789_MADCTL_MY | ST7789_MADCTL_MV;
+		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MV;
 		break;
 	case 2:
+		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MY;
 		break;
 	case 3:
-		madctl = ST7789_MADCTL_MX | ST7789_MADCTL_MV;
+		madctl = ST7789_MADCTL_MY | ST7789_MADCTL_MV;
 		break;
 	}
 
 	const uint8_t caset[4] = {
 		0x00,
-		0x00,
-		(driver->display_width - 1) >> 8,
-		(driver->display_width - 1) & 0xff};
+		(driver->offset_x),
+		(driver->display_width + driver->offset_x - 1) >> 8,
+		(driver->display_width + driver->offset_x - 1) & 0xff};
 	const uint8_t raset[4] = {
 		0x00,
-		0x00,
-		(driver->display_height - 1) >> 8,
-		(driver->display_height - 1) & 0xff};
+		(driver->offset_y),
+		(driver->display_height + driver->offset_y - 1) >> 8,
+		(driver->display_height + driver->offset_y - 1) & 0xff};
 	const st7789_command_t init_sequence[] = {
 		// Sleep
 		{ST7789_CMD_SLPIN, 10, 0, NULL},	// Sleep
@@ -135,12 +212,16 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 
 		{ST7789_CMD_MADCTL, 0, 1, &madctl}, // Page / column address order
 		{ST7789_CMD_COLMOD, 0, 1, (const uint8_t *)"\x55"}, // 16 bit RGB
-		{ST7789_CMD_INVON, 0, 0, NULL},						// Inversion on
+		#if CONFIG_ST7789_INVERSION
+		{ST7789_CMD_INVON, 0, 0, 1}, // Inversion on
+		#else
+		{ST7789_CMD_INVON, 0, 0, NULL}, // Inversion off
+		#endif				
 		{ST7789_CMD_CASET, 0, 4, (const uint8_t *)&caset},	// Set width
 		{ST7789_CMD_RASET, 0, 4, (const uint8_t *)&raset},	// Set height
-
+		{ST7789_CMD_NORON, 0, 0, NULL}, // Normal mode, Partial off
 		// Porch setting
-		{ST7789_CMD_PORCTRL, 0, 5, (const uint8_t *)"\x0c\x0c\x00\x33\x33"},
+		{ST7789_CMD_PORCTRL, 0, 5, (const uint8_t *)"\x0c\x0c\x00\x33\x33"}, //default
 		// Set VGH to 12.54V and VGL to -9.6V
 		{ST7789_CMD_GCTRL, 0, 1, (const uint8_t *)"\x14"},
 		// Set VCOM to 1.475V
@@ -156,10 +237,10 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 		// 60 fps
 		{ST7789_CMD_FRCTR2, 0, 1, (const uint8_t *)"\x0f"},
 		// Gama 2.2
-		{ST7789_CMD_GAMSET, 0, 1, (const uint8_t *)"\x01"},
+		//{ST7789_CMD_GAMSET, 0, 1, (const uint8_t *)"\x01"},
 		// Gama curve
-		{ST7789_CMD_PVGAMCTRL, 0, 14, (const uint8_t *)"\xd0\x08\x11\x08\x0c\x15\x39\x33\x50\x36\x13\x14\x29\x2d"},
-		{ST7789_CMD_NVGAMCTRL, 0, 14, (const uint8_t *)"\xd0\x08\x10\x08\x06\x06\x39\x44\x51\x0b\x16\x14\x2f\x31"},
+		//{ST7789_CMD_PVGAMCTRL, 0, 14, (const uint8_t *)"\xd0\x08\x11\x08\x0c\x15\x39\x33\x50\x36\x13\x14\x29\x2d"},
+		//{ST7789_CMD_NVGAMCTRL, 0, 14, (const uint8_t *)"\xd0\x08\x10\x08\x06\x06\x39\x44\x51\x0b\x16\x14\x2f\x31"},
 
 		// Little endian
 		{ST7789_CMD_RAMCTRL, 0, 2, (const uint8_t *)"\x00\xc8"},
@@ -177,17 +258,6 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 	};
 	st7789_run_commands(driver, init_sequence2);
 }
-
-// void st7789_set_rotation(st7789_driver_t *driver, uint8_t rotation)
-// {
-
-// 	const st7789_command_t rotate_sequence[] = {
-// 		{ST7789_CMD_MADCTL, 0, 1, &madctl},
-// 		{ST7789_CMDLIST_END, 0, 0, NULL}, // End of commands
-// 	};
-
-// 	st7789_run_commands(driver, rotate_sequence);
-// }
 
 void st7789_set_backlight(st7789_driver_t *driver, bool enable)
 {
@@ -271,7 +341,7 @@ void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t st
 
 	while (bytes_to_write > 0)
 	{
-		if (driver->queue_fill >= ST7789_SPI_QUEUE_SIZE)
+		if (driver->queue_fill >= CONFIG_ST7789_SPI_QUEUE_SIZE)
 		{
 			spi_device_get_trans_result(driver->spi, &rtrans, portMAX_DELAY);
 			driver->queue_fill--;
@@ -290,6 +360,10 @@ void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t st
 
 void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y)
 {
+	start_x += driver->offset_x;
+	end_x 	+= driver->offset_x;
+	start_y += driver->offset_y;
+	end_y 	+= driver->offset_y;
 	uint8_t caset[4];
 	uint8_t raset[4];
 	caset[0] = (uint8_t)(start_x >> 8);
@@ -309,6 +383,7 @@ void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start
 	st7789_run_commands(driver, sequence);
 }
 
+//todo this is a _write_pixels_from_active_buffer
 void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t length)
 {
 	st7789_wait_until_queue_empty(driver);

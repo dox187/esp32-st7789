@@ -14,20 +14,6 @@
 #include "st7789.h"
 
 
-#define ST7789_GPIO_MOSI GPIO_NUM_23
-#define ST7789_GPIO_SCLK GPIO_NUM_18
-#define ST7789_GPIO_CS GPIO_NUM_21
-#define ST7789_GPIO_DC GPIO_NUM_22
-#define ST7789_GPIO_RESET GPIO_NUM_16
-#define ST7789_GPIO_BACKLIGHT GPIO_NUM_4
-
-#define ST7789_SPI_HOST VSPI_HOST
-#define ST7789_DMA_CHAN 2
-#define ST7789_DISPLAY_WIDTH 320
-#define ST7789_DISPLAY_HEIGHT 240
-#define ST7789_BUFFER_SIZE 20
-
-
 extern const uint8_t ttf_start[] asm("_binary_Ubuntu_R_ttf_start");
 extern const uint8_t ttf_end[] asm("_binary_Ubuntu_R_ttf_end");
 
@@ -64,7 +50,7 @@ typedef struct animation_step {
 
 
 static void render_text(const char *text, font_render_t *render, st7789_driver_t *driver, int src_x, int src_y, int y, uint8_t color_r, uint8_t color_g, uint8_t color_b) {
-	if (src_y - y >= ST7789_BUFFER_SIZE || src_y + (int)render->max_pixel_height - y < 0) {
+	if (src_y - y >= CONFIG_ST7789_BUFFER_SIZE || src_y + (int)render->max_pixel_height - y < 0) {
 		return;
 	}
 
@@ -72,7 +58,7 @@ static void render_text(const char *text, font_render_t *render, st7789_driver_t
 		uint32_t glyph;
 		text += u8_decode(&glyph, text);
 		font_render_glyph(render, glyph);
-		st7789_draw_gray2_bitmap(render->bitmap, driver->current_buffer, color_r, color_g, color_b, src_x + render->bitmap_left, render->max_pixel_height - render->origin - render->bitmap_top + src_y - y, render->bitmap_width, render->bitmap_height, driver->display_width, ST7789_BUFFER_SIZE);
+		st7789_draw_gray2_bitmap(render->bitmap, driver->current_buffer, color_r, color_g, color_b, src_x + render->bitmap_left, render->max_pixel_height - render->origin - render->bitmap_top + src_y - y, render->bitmap_width, render->bitmap_height, driver->display_width, CONFIG_ST7789_BUFFER_SIZE);
 		src_x += render->advance;
 	}
 }
@@ -236,7 +222,7 @@ void fade_in_a(st7789_driver_t *driver, uint16_t y, draw_event_param_t *param) {
 		font_render.bitmap_width,
 		font_render.bitmap_height,
 		driver->display_width,
-		ST7789_BUFFER_SIZE
+		CONFIG_ST7789_BUFFER_SIZE
 	);
 }
 
@@ -270,7 +256,7 @@ void draw_alphabet(st7789_driver_t *driver, uint16_t y, draw_event_param_t *para
 		font_render.bitmap_width,
 		font_render.bitmap_height,
 		driver->display_width,
-		ST7789_BUFFER_SIZE
+		CONFIG_ST7789_BUFFER_SIZE
 	);
 }
 
@@ -300,7 +286,7 @@ void shrink_a(st7789_driver_t *driver, uint16_t y, draw_event_param_t *param) {
 		font_render.bitmap_width,
 		font_render.bitmap_height,
 		driver->display_width,
-		ST7789_BUFFER_SIZE
+		CONFIG_ST7789_BUFFER_SIZE
 	);
 }
 
@@ -348,7 +334,7 @@ void perfect_rendering(st7789_driver_t *driver, uint16_t y, draw_event_param_t *
 			font_render.bitmap_width,
 			font_render.bitmap_height,
 			driver->display_width,
-			ST7789_BUFFER_SIZE
+			CONFIG_ST7789_BUFFER_SIZE
 		);
 	}
 
@@ -553,7 +539,7 @@ void complex_text_demo(st7789_driver_t *driver, uint16_t y, draw_event_param_t *
 			font_render.bitmap_width,
 			font_render.bitmap_height,
 			driver->display_width,
-			ST7789_BUFFER_SIZE
+			CONFIG_ST7789_BUFFER_SIZE
 		);
 	}
 }
@@ -561,29 +547,14 @@ void complex_text_demo(st7789_driver_t *driver, uint16_t y, draw_event_param_t *
 
 void app_main(void)
 {
-	st7789_driver_t display = {
-        .pin_mosi = ST7789_GPIO_MOSI,
-        .pin_sclk = ST7789_GPIO_SCLK,
-        .pin_cs = ST7789_GPIO_CS,
-        .pin_dc = ST7789_GPIO_DC,
-        .pin_reset = ST7789_GPIO_RESET,
-        .pin_backlight = ST7789_GPIO_BACKLIGHT,
-        .spi_host = ST7789_SPI_HOST,
-        .dma_chan = ST7789_DMA_CHAN,
-        .display_width = ST7789_DISPLAY_WIDTH,
-        .display_height = ST7789_DISPLAY_HEIGHT,
-        .buffer_size = ST7789_BUFFER_SIZE * ST7789_DISPLAY_WIDTH, // 2 buffers with 20 lines
-	};
 
-	ESP_ERROR_CHECK(st7789_init(&display));
+	st7789_driver_t* display = st7789_init();
+
 
 	while (1) {
 		ESP_ERROR_CHECK(font_face_init(&font_face, ttf_start, ttf_end - ttf_start - 1));
 
-		st7789_reset(&display);
-		st7789_lcd_init(&display, 1);
-		// st7789_set_rotation(&display, 2);
-		st7789_set_backlight(&display, true);
+		st7789_set_backlight(display, true);
 
 
 		// Animation
@@ -665,7 +636,7 @@ void app_main(void)
 			current_layer = animation_step->draw_elements;
 			while (current_layer->callback) {
 				draw_state.user_data = current_layer->user_data;
-				current_layer->callback(&display, DRAW_EVENT_START, &draw_state);
+				current_layer->callback(display, DRAW_EVENT_START, &draw_state);
 				current_layer++;
 			}
 
@@ -675,21 +646,21 @@ void app_main(void)
 				bool has_render_layer = (bool)current_layer->callback;
 				while (current_layer->callback) {
 					draw_state.user_data = current_layer->user_data;
-					current_layer->callback(&display, DRAW_EVENT_FRAME_START, &draw_state);
+					current_layer->callback(display, DRAW_EVENT_FRAME_START, &draw_state);
 					current_layer++;
 				}
 
 				if (has_render_layer) {
 					uint32_t ticks_before_frame = esp_cpu_get_cycle_count();
 					st7789_randomize_dither_table();
-					for (size_t block = 0; block < ST7789_DISPLAY_HEIGHT; block += ST7789_BUFFER_SIZE) {
+					for (size_t block = 0; block < display->display_height; block += CONFIG_ST7789_BUFFER_SIZE) {
 						current_layer = animation_step->draw_elements;
 						while (current_layer->callback) {
 							draw_state.user_data = current_layer->user_data;
-							current_layer->callback(&display, block, &draw_state);
+							current_layer->callback(display, block, &draw_state);
 							current_layer++;
 						}
-						st7789_swap_buffers(&display);
+						st7789_swap_buffers(display);
 					}
 					uint32_t ticks_after_frame = esp_cpu_get_cycle_count();
 					printf("\rf: %08d, time: %.4f", (int)draw_state.total_frame, ((double)ticks_after_frame - (double)ticks_before_frame) / 240000.0);
@@ -702,7 +673,7 @@ void app_main(void)
 				current_layer = animation_step->draw_elements;
 				while (current_layer->callback) {
 					draw_state.user_data = current_layer->user_data;
-					current_layer->callback(&display, DRAW_EVENT_FRAME_END, &draw_state);
+					current_layer->callback(display, DRAW_EVENT_FRAME_END, &draw_state);
 					current_layer++;
 				}
 
@@ -714,7 +685,7 @@ void app_main(void)
 			current_layer = animation_step->draw_elements;
 			while (current_layer->callback) {
 				draw_state.user_data = current_layer->user_data;
-				current_layer->callback(&display, DRAW_EVENT_END, &draw_state);
+				current_layer->callback(display, DRAW_EVENT_END, &draw_state);
 				current_layer++;
 			}
 

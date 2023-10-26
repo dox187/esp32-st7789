@@ -1,0 +1,226 @@
+menu "ST7789 driver Configuration"
+
+	config GPIO_RANGE_MAX
+		int
+		default 33 if IDF_TARGET_ESP32
+		default 46 if IDF_TARGET_ESP32S2
+		default 48 if IDF_TARGET_ESP32S3
+		default 18 if IDF_TARGET_ESP32C2
+		default 19 if IDF_TARGET_ESP32C3
+		default 30 if IDF_TARGET_ESP32C6
+
+	config ST7789_WIDTH
+		int "SCREEN WIDTH"
+		range 0 999
+		default 240
+		help
+			The width resolution of the screen.
+
+	config ST7789_HEIGHT
+		int "SCREEN HEIGHT"
+		range 0 999
+		default 240
+		help
+			The height resolution of the screen.
+
+	config ST7789_ROTATION
+		int "ST7789_ROTATION tmp config"
+		range 0 3
+		default 0
+
+	config ST7789_OFFSETX
+		int "GRAM X OFFSET"
+		range 0 99
+		default 0
+		help
+			When your TFT have offset(X), set it.
+
+	config ST7789_OFFSETY
+		int "GRAM Y OFFSET"
+		range 0 99
+		default 0
+		help
+			When your TFT have offset(Y), set it.
+
+	config ST7789_MOSI_GPIO
+		int "MOSI GPIO number"
+		range 0 GPIO_RANGE_MAX
+		default 23 if IDF_TARGET_ESP32
+		default 35 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+		default  0 # C3 and others
+		help
+			GPIO number (IOxx) to SPI MOSI.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to MOSI.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_SCLK_GPIO
+		int "SCLK GPIO number"
+		range 0 GPIO_RANGE_MAX
+		default 18 if IDF_TARGET_ESP32
+		default 36 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+		default  1 # C3 and others
+		help
+			GPIO number (IOxx) to SPI SCLK.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to SCLK.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_CS_GPIO
+		int "CS GPIO number"
+		range -1 GPIO_RANGE_MAX
+		default -1
+		help
+			GPIO number (IOxx) to SPI CS.
+			When it is -1, CS isn't performed.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to CS.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_DC_GPIO
+		int "DC GPIO number"
+		range 0 GPIO_RANGE_MAX
+		default 27 if IDF_TARGET_ESP32
+		default 37 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+		default  2 # C3 and others
+		help
+			GPIO number (IOxx) to SPI DC.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to DC.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_RESET_GPIO
+		int "RESET GPIO number"
+		range 0 GPIO_RANGE_MAX
+		default 33 if IDF_TARGET_ESP32
+		default 38 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+		default  3 # C3 and others
+		help
+			GPIO number (IOxx) to RESET.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to RESET.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_BL_GPIO
+		int "BACKLIGHT GPIO number"
+		range -1 GPIO_RANGE_MAX
+		default 32 if IDF_TARGET_ESP32
+		default 33 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+		default  4 # C3 and others
+		help
+			GPIO number (IOxx) to BACKLIGHT.
+			When it is -1, BACKLIGHT isn't performed.
+			Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used to BACKLIGHT.
+			On the ESP32, GPIOs 35-39 are input-only so cannot be used as outputs.
+			On the ESP32-S2, GPIO 46 is input-only so cannot be used as outputs.
+
+	config ST7789_BL_DIMMABLE
+		bool "Dimmable backlight"
+		default true
+		help
+			The BL must be connected to the PWM pin.
+			ESP32		0-19, 21-23, 25-27, 32-39
+			ESP32S2/S3	0-21, 26, 33-45
+			ESP32C3		0-10, 18-21
+			
+	config ST7789_INVERSION
+		bool "Enable Display Inversion"
+		default false
+		help
+			Enable Display Inversion.
+
+	choice ST7789_SPI_HOST
+		prompt "SPI peripheral that controls this bus"
+		default SPI2_HOST
+		help
+			Select SPI peripheral that controls this bus.
+		config SPI2_HOST
+			bool "SPI2_HOST"
+			help
+				Use SPI2_HOST. This is also called HSPI_HOST.
+		config SPI3_HOST
+			depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+			bool "SPI3_HOST"
+			help
+				USE SPI3_HOST. This is also called VSPI_HOST
+	endchoice
+
+	choice ST7789_DMA_CHAN
+		prompt "SPI DMA Channel"
+		default SPI_DMA_CH_AUTO
+		config SPI_DMA_DISABLED
+			bool "SPI_DMA_DISABLED"
+			help 
+				Do not enable DMA for SPI
+		config SPI_DMA_CH1
+			depends on IDF_TARGET_ESP32
+			bool "SPI_DMA_CH1"
+			help 
+				Enable DMA, select DMA Channel 1
+		config SPI_DMA_CH2
+			depends on IDF_TARGET_ESP32
+			bool "SPI_DMA_CH2"
+			help 
+				Enable DMA, select DMA Channel 2
+		config SPI_DMA_CH_AUTO
+			bool "SPI_DMA_CH_AUTO"
+			help 
+				Enable DMA, channel is automatically selected by driver
+	endchoice
+
+	choice ST7789_SPI_FREQUENCY
+		prompt "SPI Frequency"
+		default SPI_MASTER_FREQ_40M
+		help 
+			SPI common used frequency (in Hz)
+			SPI peripheral only has an integer divider, and the default 
+			clock source can be different on other targets, so the 
+			actual frequency may be slightly different from the desired 
+			frequency.
+
+		config SPI_MASTER_FREQ_8M
+			bool "SPI_MASTER_FREQ_8M"
+			help 
+				8MHz
+		config SPI_MASTER_FREQ_10M
+			bool "SPI_MASTER_FREQ_10M"
+			help
+				10MHz
+		config SPI_MASTER_FREQ_16M
+			bool "SPI_MASTER_FREQ_16M"
+			help
+				16MHz
+		config SPI_MASTER_FREQ_20M
+			bool "SPI_MASTER_FREQ_20M"	
+			help
+				20MHz
+		config SPI_MASTER_FREQ_26M
+			bool "SPI_MASTER_FREQ_26M"
+			help
+				26MHz
+		config SPI_MASTER_FREQ_40M
+			bool "SPI_MASTER_FREQ_40M"
+			help
+				40MHz
+		config SPI_MASTER_FREQ_80M
+			bool "SPI_MASTER_FREQ_80M"
+			help
+				80MHz
+	endchoice
+
+	config ST7789_SPI_QUEUE_SIZE
+		int "SPI queue size"
+		range 0 16
+		default 2
+		help
+			SPI Transfer queue max length
+
+	config ST7789_BUFFER_SIZE
+		int "Determine how many rows (pixel rows) a buffer should have."
+		range 1 ST7789_HEIGHT
+		default 20
+		help 
+			There are two such buffers, so don't use too many
+
+
+endmenu
