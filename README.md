@@ -20,9 +20,10 @@ Set the necessary values in menuconfig.
  - offset X and Y parameters. *(especially because of the "1.69″ ips 240X280 SPI panel")*
  - in case of rotation, it "rotates" the width and height values (and their corresponding offset values)
  - SPI DMA and SPI Frequency can be set in menuconfig
+ - Adjustable backlight brightness
+ - The rotation works (mostly). You need to find the right spiconfig.mode for the panel, that one what works in both landscape and portrait mode.
 
 ### What is left
- - adjustable backlight brightness in at least 256 steps
  - functions to use 12-bit (rgb444) color depth *(A full-frame can be updated much (33%) faster, is practical for grayscale content or content that uses just a few colors)*
  - interlaced rendering
  - Frame rate control: adjustable *refresh rate* in menuconfig *(the default is 60hz)*

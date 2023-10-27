@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include <driver/ledc.h>
 
 #include "st7789.h"
 
@@ -48,11 +49,58 @@
 #endif
 
 const char *TAG = "st7789";
+ledc_channel_config_t ledc_channel; //for dimmable BL
+st7789_driver_t display; //due to availability
 
 static void st7789_pre_cb(spi_transaction_t *transaction)
 {
 	const st7789_transaction_data_t *data = (st7789_transaction_data_t *)transaction->user;
 	gpio_set_level(data->driver->pin_dc, data->data);
+}
+
+// backlight
+esp_err_t backlight_init(st7789_driver_t *driver){
+	esp_err_t err = ESP_OK;
+	
+	if (driver->pin_backlight != -1)
+	{
+		if(!CONFIG_ST7789_BL_DIMMABLE){
+			esp_rom_gpio_pad_select_gpio(driver->pin_backlight);
+		}
+
+		err = gpio_set_direction(driver->pin_dc, GPIO_MODE_OUTPUT);
+		if(err != ESP_OK) return err;
+		gpio_set_level(driver->pin_backlight, 0);
+
+		if(CONFIG_ST7789_BL_DIMMABLE){
+			esp_err_t ledc_timer_config(const ledc_timer_config_t *timer_conf);
+			ledc_timer_config_t ledc_timer = {
+				.speed_mode       = LEDC_LOW_SPEED_MODE,
+				.timer_num        = LEDC_TIMER_0,
+				.duty_resolution  = LEDC_TIMER_8_BIT,
+				.freq_hz          = 500,
+				.clk_cfg          = LEDC_AUTO_CLK
+			};
+			ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+			esp_err_t ledc_channel_config(const ledc_channel_config_t *ledc_conf);
+			ledc_channel_config_t ledc_channel = {
+				.speed_mode     = LEDC_LOW_SPEED_MODE,
+				.channel        = LEDC_CHANNEL_0,
+				.timer_sel      = LEDC_TIMER_0,
+				.intr_type      = LEDC_INTR_FADE_END,
+				.gpio_num       = driver->pin_backlight,
+				.duty           = 0,
+				.hpoint         = 0
+			};
+			err = ledc_channel_config(&ledc_channel);
+			if(err != ESP_OK) return err;
+			err = ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 255);
+			if(err != ESP_OK) return err;
+		}
+		
+		gpio_set_level(driver->pin_backlight, 1);
+	}
+	return err;
 }
 
 static esp_err_t spi_init(st7789_driver_t *driver)
@@ -75,21 +123,16 @@ static esp_err_t spi_init(st7789_driver_t *driver)
 
 	esp_rom_gpio_pad_select_gpio(driver->pin_reset);
 	esp_rom_gpio_pad_select_gpio(driver->pin_dc);
-	gpio_set_direction(driver->pin_reset, GPIO_MODE_OUTPUT);
+	gpio_set_direction(driver->pin_reset, GPIO_MODE_OUTPUT);    
 	gpio_set_direction(driver->pin_dc, GPIO_MODE_OUTPUT);
-
+	
 	if (driver->pin_cs != -1)
 	{
 		esp_rom_gpio_pad_select_gpio(driver->pin_cs);
 		gpio_set_direction(driver->pin_cs, GPIO_MODE_OUTPUT);
 		gpio_set_level(driver->pin_cs, 0);
 	}
-	if (driver->pin_backlight != -1)
-	{
-		esp_rom_gpio_pad_select_gpio(driver->pin_backlight);
-		gpio_set_direction(driver->pin_backlight, GPIO_MODE_OUTPUT);
-		gpio_set_level(driver->pin_backlight, 0);
-	}
+	
 
 	spi_bus_config_t buscfg = {
 		.mosi_io_num = driver->pin_mosi,
@@ -98,14 +141,15 @@ static esp_err_t spi_init(st7789_driver_t *driver)
 		.quadwp_io_num = -1,
 		.quadhd_io_num = -1,
 		.max_transfer_sz = driver->buffer_size * 2 * sizeof(st7789_color_t), // 2 buffers with 2 bytes for pixel
-		.flags = 0, //SPICOMMON_BUSFLAG_NATIVE_PINS,
+		.flags = 0, //SPICOMMON_BUSFLAG_NATIVE_PINS, //enable if u need 
 	};
 	spi_device_interface_config_t devcfg = {
 		.clock_speed_hz = SPI_MASTER_FREQ,
-		.mode = 3,
+		.mode = 0, // https://www.webpages.uidaho.edu/~jfrenzel/340/Handouts/communications/SPI/SPI%20Modes.pdf
 		.spics_io_num = driver->pin_cs,
 		.queue_size = CONFIG_ST7789_SPI_QUEUE_SIZE,
 		.pre_cb = st7789_pre_cb,
+		.flags = SPI_DEVICE_NO_DUMMY,
 	};
 
 	if (spi_bus_initialize(driver->spi_host, &buscfg, driver->dma_chan) != ESP_OK)
@@ -118,11 +162,12 @@ static esp_err_t spi_init(st7789_driver_t *driver)
 		ESP_LOGE(TAG, "spi bus add device failed");
 		return ESP_FAIL;
 	}
-	ESP_LOGI(TAG, "driver initialized");
+	ESP_LOGI(TAG, "spi driver initialized");
 	return ESP_OK;
 }
 
-st7789_driver_t display;
+
+
 
 st7789_driver_t* st7789_init(){
 	uint16_t width, height;
@@ -152,14 +197,21 @@ st7789_driver_t* st7789_init(){
         .display_height = height,
 		.offset_x = offsetx,
 		.offset_y = offsety,
+		.display_rotation = CONFIG_ST7789_ROTATION,
         .buffer_size = CONFIG_ST7789_BUFFER_SIZE * width, // 2 buffers with 20 lines
+		.buffer_line_height = CONFIG_ST7789_BUFFER_SIZE,
 	};
-	
+	ESP_LOGI(TAG, "display driver init _width:%d _height:%d buffer_size:%d",width,height,display.buffer_size);
+
 	ESP_ERROR_CHECK(spi_init(&display));
 
 	
+	ESP_ERROR_CHECK(backlight_init(&display));
+	
 	st7789_reset(&display);
 	st7789_lcd_init(&display, CONFIG_ST7789_ROTATION);
+
+	st7789_set_backlight_level(&display, 255);
 
 	return &display;
 }
@@ -176,9 +228,6 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 {
 
 	uint8_t madctl = 0;
-
-	// rotation = rotation % 3; // can't be higher than 3
-
 	switch (rotation)
 	{
 	case 0:
@@ -195,13 +244,13 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 	}
 
 	const uint8_t caset[4] = {
-		0x00,
-		(driver->offset_x),
+		(driver->offset_x) >> 8,
+		(driver->offset_x) & 0xff,
 		(driver->display_width + driver->offset_x - 1) >> 8,
 		(driver->display_width + driver->offset_x - 1) & 0xff};
 	const uint8_t raset[4] = {
-		0x00,
-		(driver->offset_y),
+		(driver->offset_y) >> 8,
+		(driver->offset_y) & 0xff,
 		(driver->display_height + driver->offset_y - 1) >> 8,
 		(driver->display_height + driver->offset_y - 1) & 0xff};
 	const st7789_command_t init_sequence[] = {
@@ -212,11 +261,9 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 
 		{ST7789_CMD_MADCTL, 0, 1, &madctl}, // Page / column address order
 		{ST7789_CMD_COLMOD, 0, 1, (const uint8_t *)"\x55"}, // 16 bit RGB
-		#if CONFIG_ST7789_INVERSION
-		{ST7789_CMD_INVON, 0, 0, 1}, // Inversion on
-		#else
+		#ifndef CONFIG_ST7789_INVERSION
 		{ST7789_CMD_INVON, 0, 0, NULL}, // Inversion off
-		#endif				
+		#endif
 		{ST7789_CMD_CASET, 0, 4, (const uint8_t *)&caset},	// Set width
 		{ST7789_CMD_RASET, 0, 4, (const uint8_t *)&raset},	// Set height
 		{ST7789_CMD_NORON, 0, 0, NULL}, // Normal mode, Partial off
@@ -243,6 +290,8 @@ void st7789_lcd_init(st7789_driver_t *driver, uint8_t rotation)
 		//{ST7789_CMD_NVGAMCTRL, 0, 14, (const uint8_t *)"\xd0\x08\x10\x08\x06\x06\x39\x44\x51\x0b\x16\x14\x2f\x31"},
 
 		// Little endian
+		// Note: Little Endian only can be supported in 65K 8-bit and 9-bit interface. 
+		// 1-4 datapin spi is not supported
 		{ST7789_CMD_RAMCTRL, 0, 2, (const uint8_t *)"\x00\xc8"},
 		{ST7789_CMDLIST_END, 0, 0, NULL}, // End of commands
 	};
@@ -264,6 +313,29 @@ void st7789_set_backlight(st7789_driver_t *driver, bool enable)
 	if (driver->pin_backlight != -1)
 	{
 		gpio_set_level(driver->pin_backlight, enable);
+	}
+}
+
+void st7789_set_backlight_level(st7789_driver_t *driver, uint8_t level)
+{
+	if (driver->pin_backlight != -1)
+	{
+		if(CONFIG_ST7789_BL_DIMMABLE)
+		{
+			ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+			ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, level));
+		}
+		else
+		{
+			if(level > 16) 
+			{
+				st7789_set_backlight(driver, true);
+			} 
+			else 
+			{
+				st7789_set_backlight(driver, false);
+			}
+		}
 	}
 }
 
@@ -360,10 +432,10 @@ void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t st
 
 void st7789_set_window(st7789_driver_t *driver, uint16_t start_x, uint16_t start_y, uint16_t end_x, uint16_t end_y)
 {
-	start_x += driver->offset_x;
-	end_x 	+= driver->offset_x;
-	start_y += driver->offset_y;
-	end_y 	+= driver->offset_y;
+	start_x	+= driver->offset_x;
+	end_x	+= driver->offset_x;
+	start_y	+= driver->offset_y;
+	end_y	+= driver->offset_y;
 	uint8_t caset[4];
 	uint8_t raset[4];
 	caset[0] = (uint8_t)(start_x >> 8);

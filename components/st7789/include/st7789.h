@@ -119,10 +119,12 @@ typedef struct st7789_driver {
 	int dma_chan;
 	int offset_x;
 	int offset_y;
+	int display_rotation;
 	uint8_t queue_fill;
 	uint16_t display_width;
 	uint16_t display_height;
 	spi_device_handle_t spi;
+	size_t buffer_line_height;
 	size_t buffer_size;
 	st7789_transaction_data_t data;
 	st7789_transaction_data_t command;
@@ -156,6 +158,7 @@ void st7789_write_pixels(st7789_driver_t *driver, st7789_color_t *pixels, size_t
 void st7789_wait_until_queue_empty(st7789_driver_t *driver);
 void st7789_swap_buffers(st7789_driver_t *driver);
 void st7789_set_backlight(st7789_driver_t *driver, bool enable);
+void st7789_set_backlight_level(st7789_driver_t *driver, uint8_t level);
 // void st7789_set_rotation(st7789_driver_t *driver, uint8_t rotation);
 /*
 inline st7789_color_t st7789_rgb_to_color(uint8_t r, uint8_t g, uint8_t b) {

@@ -293,7 +293,7 @@ void shrink_a(st7789_driver_t *driver, uint16_t y, draw_event_param_t *param) {
 
 void perfect_rendering(st7789_driver_t *driver, uint16_t y, draw_event_param_t *param) {
 	float transition_position = ((float)param->frame + 1.0) / (float)param->duration;
-
+	
 	if (y >= DRAW_EVENT_CONTROL) {
 		if (y == DRAW_EVENT_START) {
 			ESP_ERROR_CHECK(font_render_init(&font_render, &font_face, 60, 1));
