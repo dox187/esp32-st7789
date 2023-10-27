@@ -17,11 +17,10 @@ Set the necessary values in menuconfig.
  - The required global values are defined in Kconfig.projbuild.
  - Self config for the driver 
  - Default gamma *(later, this as a setting will also be moved to menuconfig)*
- - offset X and Y parameters. *(especially because of the "1.69″ ips 240X280 SPI panel")*
- - in case of rotation, it "rotates" the width and height values (and their corresponding offset values)
+ - offset X and Y parameters.
  - SPI DMA and SPI Frequency can be set in menuconfig
  - Adjustable backlight brightness
- - The rotation works (mostly). You need to find the right spiconfig.mode for the panel, that one what works in both landscape and portrait mode.
+ - The rotation works (mostly). You need to find the right spiconfig.mode for the panel.
 
 ### What is left
  - functions to use 12-bit (rgb444) color depth *(A full-frame can be updated much (33%) faster, is practical for grayscale content or content that uses just a few colors)*
