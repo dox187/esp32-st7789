@@ -22,6 +22,12 @@
 	#define SPI_HOST_ID SPI3_HOST
 #endif
 
+#ifndef CONFIG_ST7789_BL_DIMMABLE
+	#define ST7789_BL_DIMMABLE 0
+#else
+	#define ST7789_BL_DIMMABLE 1
+#endif
+
 #if CONFIG_SPI_DMA_DISABLED
 	#define SPI_DMA_CH SPI_DMA_DISABLED
 #elif CONFIG_SPI_DMA_CH1
@@ -64,7 +70,7 @@ esp_err_t backlight_init(st7789_driver_t *driver){
 	
 	if (driver->pin_backlight != -1)
 	{
-		if(!CONFIG_ST7789_BL_DIMMABLE){
+		if(!ST7789_BL_DIMMABLE){
 			esp_rom_gpio_pad_select_gpio(driver->pin_backlight);
 		}
 
@@ -72,7 +78,7 @@ esp_err_t backlight_init(st7789_driver_t *driver){
 		if(err != ESP_OK) return err;
 		gpio_set_level(driver->pin_backlight, 0);
 
-		if(CONFIG_ST7789_BL_DIMMABLE){
+		if(ST7789_BL_DIMMABLE){
 			esp_err_t ledc_timer_config(const ledc_timer_config_t *timer_conf);
 			ledc_timer_config_t ledc_timer = {
 				.speed_mode       = LEDC_LOW_SPEED_MODE,
@@ -320,7 +326,7 @@ void st7789_set_backlight_level(st7789_driver_t *driver, uint8_t level)
 {
 	if (driver->pin_backlight != -1)
 	{
-		if(CONFIG_ST7789_BL_DIMMABLE)
+		if(ST7789_BL_DIMMABLE)
 		{
 			ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
 			ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, level));
@@ -389,6 +395,13 @@ void st7789_run_commands(st7789_driver_t *driver, const st7789_command_t *sequen
 void st7789_clear(st7789_driver_t *driver, st7789_color_t color)
 {
 	st7789_fill_area(driver, color, 0, 0, driver->display_width, driver->display_height);
+}
+
+void st7789_fill_current_buffer_color(st7789_driver_t *driver, st7789_color_t color){
+	for (size_t i = 0; i < driver->buffer_size; ++i)
+	{
+		driver->current_buffer[i] = color;
+	}
 }
 
 void st7789_fill_area(st7789_driver_t *driver, st7789_color_t color, uint16_t start_x, uint16_t start_y, uint16_t width, uint16_t height)
